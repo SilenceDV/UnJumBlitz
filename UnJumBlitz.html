@@ -60,7 +60,7 @@
       position: absolute;
       inset: 0;
       z-index: -4;
-      display: block; 
+      display: block;
       background-image: url('BAAO-Unscramble.png');
       background-size: 125%;
       background-repeat: no-repeat;
@@ -597,6 +597,15 @@
       animation: shake 0.3s ease;
       color: #ff7971;
       text-shadow: 0 0 5px #ff0000;
+    }
+
+    .letterBox.revealed {
+      color: var(--accent-3);
+      border-bottom-color: var(--accent-3);
+      text-shadow:
+        0 0 8px rgba(255,224,102,0.9),
+        0 0 12px rgba(255,157,0,0.45),
+        0 0 10px rgba(0,0,0,0.65);
     }
 
     #alphabetContainer {
@@ -1389,8 +1398,10 @@
 
     <div class="bottomControls">
       <div class="leftControls">
-        <button id="rescrambleBtn" class="smallBtn">Rescramble</button>
-        <button id="skipBtn" class="smallBtn" style="display:none;">Skip</button>
+        <button id="hintBtn" class="smallBtn" title="Keyboard shortcut: ?">Hint (?)</button>
+        <button id="rescrambleBtn" class="smallBtn" title="Keyboard shortcut: Space">Rescramble (Space)</button>
+        <button id="revealRandomBtn" class="smallBtn" title="Keyboard shortcut: .">Random Letter (.)</button>
+        <button id="skipBtn" class="smallBtn" title="Keyboard shortcut: Enter">Skip (Enter)</button>
       </div>
 
       <div class="credit">
@@ -1471,6 +1482,8 @@
       currentWord: '',
       currentScramble: '',
       allowedLetters: [],
+      revealedLetters: {},
+      hintStep: 0,
 
       streak: 0,
       bests: {
@@ -1593,7 +1606,9 @@
       letterContainer: document.getElementById('letterContainer'),
       alphabetContainer: document.getElementById('alphabetContainer'),
       skipBtn: document.getElementById('skipBtn'),
+      hintBtn: document.getElementById('hintBtn'),
       rescrambleBtn: document.getElementById('rescrambleBtn'),
+      revealRandomBtn: document.getElementById('revealRandomBtn'),
       cheatAnswer: document.getElementById('cheatAnswer'),
       toggleAnswerBtn: document.getElementById('toggleAnswerBtn'),
       failStreakDisplay: document.getElementById('failStreakDisplay'),
@@ -1709,7 +1724,7 @@
     }
 
     function updateSkipVisibility() {
-      els.skipBtn.style.display = state.timedMode ? 'none' : 'inline-block';
+      els.skipBtn.style.display = 'inline-block';
     }
 
     function updateLevelDisplay() {
@@ -1878,7 +1893,9 @@
       state.currentWord = word;
       state.currentScramble = shuffleWord(word);
       state.allowedLetters = word.toUpperCase().split('');
-      
+      state.revealedLetters = {};
+      state.hintStep = 0;
+
       els.scrambledWord.textContent = state.currentScramble.toUpperCase();
       els.letterContainer.innerHTML = '';
 
@@ -1915,12 +1932,19 @@
       const boxes = [...document.querySelectorAll('.letterBox')];
 
       boxes.forEach((box, index) => {
-        box.classList.remove('filled');
+        box.classList.remove('filled', 'revealed');
         box.textContent = '';
+
+        if (state.revealedLetters[index]) {
+          box.textContent = state.revealedLetters[index];
+          box.classList.add('filled', 'revealed');
+          box.style.color = '#ffe066';
+        }
 
         if (value[index]) {
           box.textContent = value[index];
           box.classList.add('filled');
+          box.classList.remove('revealed');
           box.style.color = 'white';
         }
       });
@@ -1942,6 +1966,7 @@
     function startTimer() {
       stopTimer();
       state.timerValue = DEFAULT_TIMER_SECONDS;
+      els.timer.style.color = '#fff';
       updateTimerDisplay();
 
       if (!state.timedMode) return;
@@ -1982,12 +2007,12 @@
 
     function clearInput() {
       els.hiddenInput.value = '';
-  }
+    }
 
     function clearLetterBoxes() {
       document.querySelectorAll('.letterBox').forEach(box => {
         box.textContent = '';
-        box.classList.remove('filled', 'wrong');
+        box.classList.remove('filled', 'wrong', 'revealed');
       });
     }
 
@@ -2083,9 +2108,9 @@
       setTimeout(() => {
         clearInput();
         boxes.forEach(box => {
-          box.textContent = '';
-          box.classList.remove('filled', 'wrong');
+          box.classList.remove('wrong');
         });
+        renderTypedLetters('');
       }, 300);
     }
 
@@ -2123,6 +2148,42 @@
       focusInput();
     }
 
+    function revealLetterAt(index) {
+      if (!state.currentWord || index < 0 || index >= state.currentWord.length) return;
+
+      state.revealedLetters[index] = state.currentWord[index].toUpperCase();
+      renderTypedLetters(els.hiddenInput.value);
+      pulseAlphabetLetter(state.revealedLetters[index]);
+      playSound(sounds.click);
+      focusInput();
+    }
+
+    function giveHint() {
+      if (!state.currentWord || isOverlayOpen()) return;
+
+      if (state.hintStep === 0) {
+        revealLetterAt(0);
+        state.hintStep = 1;
+        return;
+      }
+
+      revealLetterAt(state.currentWord.length - 1);
+      state.hintStep = 2;
+    }
+
+    function revealRandomLetter() {
+      if (!state.currentWord || isOverlayOpen()) return;
+
+      const hiddenIndexes = state.currentWord
+        .split('')
+        .map((_, index) => index)
+        .filter(index => !state.revealedLetters[index]);
+
+      const candidates = hiddenIndexes.length ? hiddenIndexes : state.currentWord.split('').map((_, index) => index);
+      const randomIndex = candidates[Math.floor(Math.random() * candidates.length)];
+      revealLetterAt(randomIndex);
+    }
+
     function rescrambleCurrentWord() {
       if (!state.currentWord || isOverlayOpen()) return;
 
@@ -2130,11 +2191,12 @@
       clearLetterBoxes();
       state.currentScramble = shuffleWord(state.currentWord);
       els.scrambledWord.textContent = state.currentScramble.toUpperCase();
+      renderTypedLetters('');
       focusInput();
     }
 
     function skipCurrentWord() {
-      if (state.timedMode || isOverlayOpen()) return;
+      if (isOverlayOpen()) return;
 
       clearInput();
       clearLetterBoxes();
@@ -2370,7 +2432,9 @@ function createMenuParticles() {
       returnToMainMenu();
     });
 
+    els.hintBtn.addEventListener('click', giveHint);
     els.rescrambleBtn.addEventListener('click', rescrambleCurrentWord);
+    els.revealRandomBtn.addEventListener('click', revealRandomLetter);
     els.skipBtn.addEventListener('click', skipCurrentWord);
 
     els.toggleAnswerBtn.addEventListener('click', () => {
@@ -2401,6 +2465,22 @@ function createMenuParticles() {
         } else if (screens.gameScreen.classList.contains('active') && !isOverlayOpen()) {
           pauseGame();
         }
+        return;
+      }
+
+      if (isOverlayOpen() || state.paused || !screens.gameScreen.classList.contains('active')) return;
+
+      const actionKeys = {
+        '?': giveHint,
+        '/': giveHint,
+        ' ': rescrambleCurrentWord,
+        '.': revealRandomLetter,
+        Enter: skipCurrentWord
+      };
+
+      if (actionKeys[event.key]) {
+        event.preventDefault();
+        actionKeys[event.key]();
       }
     });
 
